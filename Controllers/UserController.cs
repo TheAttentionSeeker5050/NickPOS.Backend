@@ -88,6 +88,101 @@ namespace NickPOS.Backend.Controllers
                 message = "User registered successfully."
             });
         }
+
+        [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager}")]
+        [HttpDelete("{id:long}")]
+        public async Task<IActionResult> DeleteUser(long id)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
+
+            if (user == null)
+                return NotFound();
+
+            _context.Users.Remove(user);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "User deleted successfully." });
+        }
+
+        [Authorize]
+        [HttpPut("me")]
+        public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateUserRequest request)
+        {
+            var userId = GetUserId();
+
+            if (userId == null)
+                return Unauthorized();
+
+            var user = await _context.Users.FindAsync(userId.Value);
+
+            if (user == null)
+                return NotFound();
+
+            user.FullName = request.FullName;
+            user.Email = request.Email;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new ProfileResponse
+            {
+                Username = user.Username ?? "",
+                FullName = user.FullName ?? "",
+                Email = user.Email ?? "",
+                Role = user.Role ?? ""
+            });
+        }
+
+        [Authorize]
+        [HttpPut("me/password")]
+        public async Task<IActionResult> UpdatePassword([FromBody] UpdatePasswordRequest request)
+        {
+            var userId = GetUserId();
+
+            if (userId == null)
+                return Unauthorized();
+
+            var user = await _context.Users.FindAsync(userId.Value);
+
+            if (user == null)
+                return NotFound();
+
+            var hasher = new PasswordHasher<UserModel>();
+
+            var verify = hasher.VerifyHashedPassword(
+                user,
+                user.PasswordHash!,
+                request.CurrentPassword);
+
+            if (verify != PasswordVerificationResult.Success)
+                return BadRequest("Current password is incorrect");
+
+            user.PasswordHash = hasher.HashPassword(user, request.NewPassword);
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Password updated successfully" });
+        }
+
+        [Authorize]
+        [HttpGet("profile")]
+        public async Task<IActionResult> Profile()
+        {
+            var userId = GetUserId();
+            if (userId == null) return Unauthorized();
+
+            var user = await _context.Users.FindAsync(userId.Value);
+            if (user == null) return NotFound();
+
+             var response = new ProfileResponse
+            {
+                Username = user.Username ?? "",
+                FullName = user.FullName ?? "",
+                Email = user.Email ?? "",
+                Role = user.Role ?? ""
+            };
+            
+            return Ok(response);
+        }
         
         private string GenerateJSONWebToken(UserModel user)
         {
@@ -138,6 +233,12 @@ namespace NickPOS.Backend.Controllers
             return result == PasswordVerificationResult.Success
                 ? user
                 : null;
+        }
+
+        private long? GetUserId()
+        {
+            var id = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return long.TryParse(id, out var parsed) ? parsed : null;
         }
     }
 }
