@@ -1,0 +1,6 @@
+@NickPOS.Backend_HostAddress = http://localhost:5168
+
+GET {{NickPOS.Backend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
