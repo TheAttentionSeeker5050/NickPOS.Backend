@@ -1,11 +1,15 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using NickPOS.Backend.Data;
+using NickPOS.Backend.DTOs;
 using NickPOS.Backend.Models;
+using Microsoft.AspNetCore.Identity;
+using NuGet.Protocol;
 
 namespace NickPOS.Backend.Controllers
 {
@@ -24,46 +28,104 @@ namespace NickPOS.Backend.Controllers
 
         [AllowAnonymous]
         [HttpPost("authenticate")]
-        public IActionResult Login([FromBody]UserModel login)
+        public async Task<IActionResult> Login([FromBody] LoginRequest login)
         {
-            IActionResult response = Unauthorized();
-            var user = AuthenticateUser(login);
+            var user = await AuthenticateUser(login);
 
-            if (user != null)
+            if (user == null)
             {
-                var tokenString = GenerateJSONWebToken(user);
-                response = Ok(new { token = tokenString });
+                return Unauthorized();
             }
 
-            return response;
+            var tokenString = GenerateJSONWebToken(user);
+
+            return Ok(new
+            {
+                token = tokenString
+            });
+        }
+
+        [AllowAnonymous]
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+        {
+            var existingUser = await _context.Users
+                .FirstOrDefaultAsync(u =>
+                    u.Username == request.Username ||
+                    u.Email == request.Email);
+
+            if (existingUser != null)
+            {
+                return BadRequest("Username or email already exists.");
+            }
+
+            var passwordHasher = new PasswordHasher<UserModel>();
+
+            var user = new UserModel
+            {
+                Username = request.Username,
+                FullName = request.FullName,
+                Email = request.Email,
+                Role = "User"
+            };
+
+            user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
+            
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "User registered successfully."
+            });
         }
         
-        private string GenerateJSONWebToken(UserModel userInfo)
+        private string GenerateJSONWebToken(UserModel user)
         {
-            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
-            var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+            var securityKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
 
-            var token = new JwtSecurityToken(_config["Jwt:Issuer"],
-              _config["Jwt:Issuer"],
-              null,
-              expires: DateTime.Now.AddMinutes(120),
-              signingCredentials: credentials);
+            var credentials = new SigningCredentials(
+                securityKey,
+                SecurityAlgorithms.HmacSha256);
+
+            var claims = new[]
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+                new Claim(JwtRegisteredClaimNames.UniqueName, user.Username!),
+                new Claim(ClaimTypes.Role, user.Role ?? "User")
+            };
+
+            var token = new JwtSecurityToken(
+                issuer: _config["Jwt:Issuer"],
+                audience: _config["Jwt:Issuer"],
+                claims: claims,
+                expires: DateTime.UtcNow.AddHours(2),
+                signingCredentials: credentials);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
-        private UserModel AuthenticateUser(UserModel login)
+        private async Task<UserModel?> AuthenticateUser(LoginRequest login)
         {
-            UserModel user = null;
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.Username == login.Username);
 
-            //Validate the User Credentials
-            //Demo Purpose, I have Passed HardCoded User Information
-            if (login.Username == "Nick")
+            if (user == null)
             {
-                user = new UserModel { Username = "Nick", Email  = "nick.castellano@gmail.com" };
+                return null;
             }
 
-            return user;
+            var passwordHasher = new PasswordHasher<UserModel>();
+
+            var result = passwordHasher.VerifyHashedPassword(
+                user,
+                user.PasswordHash!,
+                login.Password);
+
+            return result == PasswordVerificationResult.Success
+                ? user
+                : null;
         }
     }
 }
