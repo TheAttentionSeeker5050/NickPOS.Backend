@@ -10,7 +10,7 @@ namespace NickPOS.Backend.Models
         public string? PasswordHash { get; set; }
     }
 
-    public static class Roles
+    public static class AppRoles
     {
         public const string User = "User";
         public const string Manager = "Manager";

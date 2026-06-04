@@ -65,9 +65,18 @@ namespace NickPOS.Backend.Controllers
             {
                 Username = request.Username,
                 FullName = request.FullName,
-                Email = request.Email,
-                Role = "User"
+                Email = request.Email
+                // ,Role = "User"
             };
+
+            if (!string.IsNullOrEmpty(request.Role))
+            {
+                user.Role = request.Role; // only if you trust the caller (NOT recommended publicly)
+            }
+            else
+            {
+                user.Role = AppRoles.User;
+            }
 
             user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
             
@@ -92,9 +101,12 @@ namespace NickPOS.Backend.Controllers
             var claims = new[]
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-                new Claim(JwtRegisteredClaimNames.UniqueName, user.Username!),
-                new Claim(ClaimTypes.Role, user.Role ?? "User")
+                new Claim(ClaimTypes.Name, user.Username ?? ""),
+                new Claim(ClaimTypes.Role, user.Role ?? AppRoles.User)
             };
+
+            // this allows to have api endpoints as [Authorize(Roles = AppRoles.User)] or whatever kind of role it is
+            // or if multiple roles: [Authorize(Roles = $"{AppRoles.Manager},{AppRoles.Admin}")]
 
             var token = new JwtSecurityToken(
                 issuer: _config["Jwt:Issuer"],
